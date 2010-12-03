@@ -1,0 +1,92 @@
+/*  ----------------------------------------------
+	Author:	Mathias Neumann
+			www.maneumann.com 
+	Date:	October 2010
+	----------------------------------------------*/
+
+body 
+{
+	font-family: Lucida Grande, Verdana, Geneva, Arial, sans-serif;
+	font-size: 14px;
+	line-height: 18px;
+	margin: 1em 6% 1em 6%;
+	padding: 1em;
+	border: 1px solid #ccc;
+	border-radius: 1em;
+	-moz-border-radius: 1em;
+	-webkit-border-radius: 1em;
+	box-shadow: 4px 4px 4px #ddd;
+	-moz-box-shadow: 4px 4px 4px #ddd;
+	-webkit-box-shadow: 4px 4px 4px #ddd;
+	background-image: -moz-linear-gradient(center top, #eee 0, #fff 10em);
+}
+li 
+{
+    margin-top: 0.5em;
+	margin-bottom: 0.5em;
+}
+ul 
+{
+	list-style-type: disc;
+}
+a 
+{
+	color: #770000;
+	text-decoration: none;
+}
+a:hover 
+{
+	text-decoration: underline;
+	color: #ff0000;
+}
+hr 
+{
+	margin: 2em 2em 1em 2em;
+}
+h1, h2, h3
+{
+	margin-top: 1.5em;
+}
+h1, h2, h3, h4, h5, h6 
+{
+	margin-left: 1em;
+	margin-right: 2em;
+	font-family: Arial,Sans-serif;
+	line-height: 1em;
+	font-weight: bold;
+	letter-spacing: 0;
+}
+h2, h3
+{
+	padding-bottom: 0.5em;
+	border-bottom: dotted 1px #ccc;
+}
+small 
+{
+	font-size: 12px;
+}
+table 
+{
+	font-size: 14px;
+	border-collapse: collapse;
+}
+table caption 
+{
+	font-weight: bold;
+	line-height: 3em;
+}
+table thead 
+{
+	background-color: #eee;
+}
+table tr 
+{
+	height: 2em;
+}
+.license 
+{
+	border: solid 1px #AAA;
+	width: 45em;
+	margin: 2em auto 2em auto;
+	padding: 0.3em;
+}

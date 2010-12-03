@@ -1,0 +1,963 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" dir="ltr" lang="en-US">
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1" />
+    <title>MNRT Documentation</title>
+    <link rel="stylesheet" type="text/css" href="Styles.css" />
+    <meta name="author" content="Mathias Neumann, www.maneumann.com" />
+</head>
+
+<body>
+
+<table style="width: 100%;">
+    <tr>
+        <td style="text-align: left;">Copyright &copy; Mathias Neumann 2010</td>
+        <td style="text-align: right;"><a href="http://www.maneumann.com">www.maneumann.com</a></td>
+    </tr>
+</table>
+
+<center><h1>MNRT Documentation</h1></center>
+<center>Version 1.00</center>
+
+<h2>&nbsp;<a name="Contents"></a>Contents</h2>
+
+
+<p>This file provides a short introduction to the given application
+called <em>MNRT</em>. It is organized as follows:</p>
+
+<ol>
+  <li><a href="#Introduction">Introduction</a></li>
+  <li><a href="#Basics">Basics</a></li>
+  <li><a href="#Accelerated_Final_Gathering">Accelerated Final Gathering</a></li>
+  <li><a href="#MNRT_User_Interface">MNRT User Interface</a></li>
+  <li><a href="#Further_Information">Further Information</a></li>
+</ol>
+
+<hr noshade="noshade" size="1" />
+<h2>1. <a name="Introduction"></a>Introduction</h2>
+
+<p>The application implements several techniques to realize fast global illumination 
+for dynamic scenes on Graphics Processing Units (GPUs). It was developed during the creation of 
+my <em>Diplomarbeit</em> (German master thesis equivalent):</p>
+
+<p style="margin-left: 2em;">
+    <em>GPU-basierte globale Beleuchtung mit CUDA in Echtzeit</em><br/>
+    <em>Neumann, Mathias</em><br/>
+    <em>Diplomarbeit, FernUniversität in Hagen, 2010</em>
+</p>
+
+<p>The basic ideas of the implementation are described within <a href="#L1">[Wang et al. 2009]</a>.
+Right now MNRT is very experimental. Therefore it 
+might contain several errors. Furthermore MNRT does not show all features of the 
+system described in my thesis. For example, spherical harmonics are not used to 
+handle glossy materials, yet. They might be added in the future. The following figure
+shows some images rendered with the current version of MNRT.</p>
+
+<table style="margin-left: 3em; margin-right: 3em;">
+    <tr>
+        <td style="padding: 1em; width: 30%;"><img src="MNRT_MNSimple.png" alt="MNSimple" title="MNSimple" width="100%"/></td>
+        <td style="padding: 1em; width: 30%;"><img src="MNRT_Sibenik.png" alt="Sibenik" title="Sibenik" width="100%"/></td>
+        <td style="padding: 1em; width: 30%;"><img src="MNRT_Sponza.png" alt="Sponza" title="Sponza" width="100%"/></td>
+    </tr>
+    <tr>
+        <td style="text-align: center;">(a) MNSimple</td>
+        <td style="text-align: center;">(b) Sibenik</td>
+        <td style="text-align: center;">(c) Sponza</td>
+    </tr>
+</table>
+    
+<h3>1.1 Requirements</h3>
+    
+<p>As the title of my thesis suggests, I used the CUDA API to develop a GPU-based 
+application. That's why the execution of MNRT requires a CUDA capable NVIDIA 
+GPU with compute capability of at least 1.1. All these GPUs are listed 
+<a href="http://www.nvidia.com/object/cuda_gpus.html">here</a>. Furthermore I 
+currently only provide a Windows version of MNRT, although I used platform 
+independent libraries only. So a version for other operating systems might 
+follow. Hence the requirements are:</p>
+
+<ul>
+    <li>Windows OS with CUDA support, e.g. Windows XP, Vista or 7</li>
+    <li>CUDA capable NVIDIA GPU with compute capability of at least 1.1 (see <a href="http://www.nvidia.com/object/cuda_gpus.html">here</a>)</li>
+    <li>Up-to-date GPU drivers</li>
+</ul>
+    
+<p>Computing global illumination is a quite complex task. Therefore a powerful, 
+up-to-date GPU should perform somewhat better than older GPUs. Right now I use a 
+NVIDIA GTX 460, however MNRT was developed mainly using an older GTS 
+250.</p>
+
+<p>In case MNRT crashes without message, please enable the error check mode, see the
+menu entry "Help -&gt; Enable Error Checks". It puts a synchronization operation just
+behind each kernel call and tries to catch possible CUDA errors as soon as possible.
+It is disabled by default as the synchronization takes quite some time.</p>
+
+<p><b>Warning</b>: As MNRT is certainly not free of errors, especially the experimentation
+with different scenes might result into problems. For example, large scenes might ask
+for too much GPU memory. Some other problems might be endless GPU loops or illegal GPU
+memory operations. They can lead to non-responding display drivers, so the system might
+block for some time until the operating system recovered from such a lock. In some cases
+they also might result in a blue screen, e.g. when the display driver could not be
+recovered.</p>
+
+
+<hr noshade="noshade" size="1" />
+<h2><a name="Basics"></a>2. Basics</h2>
+<p>Global illumination tries to simulate the propagation of light using a more 
+physically oriented computation than common local illumination models. The 
+latter just ignore or coarsely approximate the effects of indirect illumination. 
+Indirect illumination however greatly increases the realism of generated images. 
+It is the result of light scattering at obstacles, e.g. surfaces of objects. 
+Such scattering can also result of participating media like fog. MNRT simplifies 
+the scattering process by taking only scattering at surfaces of objects into 
+account. An overview of MNRT's components is given in the subsequent image.</p>
+
+<center>
+    <img src="AlgorithmOverviewEn.png" alt="MNRT Component Overview" title="MNRT Component Overview" width="80%" />
+</center>
+
+<p>Light scattering can be handled efficiently using photon mapping. Here we send 
+out photons from the direct light sources and trace them through the given 
+scene. For each photon-surface-intersection we record the position, incoming 
+direction and power (flux) of the photon. All photons are stored in a so called 
+photon map. After that we can use the photons to estimate the indirect 
+illumination using a density estimation.</p>
+
+<p>Direct lighting is handled using ray tracing techniques, i.e. by sending out rays 
+from the camera and tracing them through the scene. At intersection points the 
+incoming radiance from direct light sources is computed. Furthermore we send out 
+rays for specular reflections/transmissions. These so called secondary rays are 
+traced in the same way.</p>
+
+<p>At all intersection points (we call them &quot;shading points&quot;) we have to compute the 
+indirect illumination. This can be done using the photons of the photon maps to 
+estimate the incoming radiance from indirect light sources (density estimation). To improve the 
+quality of that process, one normally applies final gathering. Here we send out 
+gather rays from each sample point into random directions in the hemisphere over 
+the sample point (defined by the surface normal). For each gather ray we 
+estimate the incoming radiance due to indirect illumination from the ray's 
+direction. This is done by density estimation using the photon map. Therefore 
+the process of density estimation is dislocated and its errors are hidden.</p>
+
+<p>The radiance from each gather ray is used to estimate the incoming indirect 
+illumination using Monte Carlo integration. This leads to the problem of 
+variance in the result, which creates a noisy image when using not enough 
+random samples (i.e. gather rays). Here lies the complexity of the final 
+gathering algorithm: We have to send out several hundred gather rays to obtain 
+noisefree images, for complex scenes even thousands of rays.</p>
+    
+
+<h3>2.1 Ray Tracing</h3>
+
+<p>Ray tracing is quite efficient on modern hardware, e.g. on multi-core 
+CPUs or GPUs. Several researchers reported real-time framerates for complex 
+scenes. Incorporating dynamic geometry however requires to rebuild the 
+ray-object intersection acceleration data structure for every frame. Therefore a 
+fast construction algorithm is required.</p>
+    
+<p>In MNRT a GPU-based kd-tree is used at several places, including the acceleration 
+of ray-object intersection tests. Its GPU-based construction is described by 
+<a href="#L2">[Zhou et al. 2008]</a>. I implemented this construction algorithm in 
+MNRT. As I could not optimize all sections of MNRT, I cannot reach the timings of Zhou et al.</p>
+
+<p>The actual ray tracing algorithm was implemented on the GPU, too. MNRT shows some 
+performance results of this implementation. However, you'd have to disable 
+photon mapping to get the actual ray tracing performance. Specular reflection and
+transmission rays are supported, but quite untested and right now limited to just
+one bounce. I suspended working on specular materials to reduce the number of error
+sources. The following picture shows an image ray traced with MNRT and specular reflections
+enabled.</p>
+
+<table style="margin: 0 33% 0 33%;">
+    <tr>
+        <td style="padding: 1em;"><img src="MNRT_MNRing_RT.png" alt="MNRing (RT)" title="MNRing (RT)" width="100%"/></td>
+    </tr>
+    <tr>
+        <td style="text-align: center;">MNRing (ray traced)</td>
+    </tr>
+</table>
+
+
+<h3>2.2 Photon Mapping</h3>
+
+<p>Photon maps can benefit from a fast kd-tree implementation, too. Therefore MNRT 
+also uses a kd-tree to store the photons in a scene independent way. Just like 
+<a href="#L2">[Zhou et al. 2008]</a> I use a recursive DFS-based range search 
+algorithm to restrict the number of considered photons for density estimation. 
+Each CUDA thread performs the search for one given query point. The recursive 
+search algorithm can be easily mapped to a CUDA device function using the local 
+GPU memory to store a stack.</p>
+
+<p><a href="#L1">[Wang et al. 2009]</a> proposed two photon maps: The <i>caustics</i> 
+photon map stores all photon interactions that were reflected in a specular way 
+(specular reflection/transmission) before hitting the surface the interaction 
+represents. It can be used to capture caustics, i.e. focussed light, by performing the density 
+estimation directly without final gathering. All other photon interactions are 
+stored in the <i>global</i> photon map. It is not queried in indirect ways, but 
+only by the use of final gathering.</p>
+
+<p>To allow precise density estimation, one have to take the local photon density 
+into account. Especially caustic effects can lead to extreme fluctuation in 
+photon density. A fixed query radius for the range search can blur out sharp 
+caustic patterns. That's why <a href="#L3">[Jensen 2001]</a> proposed a kNN (k 
+Nearest Neighbors) search to look for the k closest photons only. For this operation, 
+MNRT uses a histogram-based approach to determine the query radius in a 
+iterative way before executing the actual query 
+<a href="#L2">[Zhou et al. 2008]</a>.</p>
+
+<p>Right now, only support for diffuse surfaces is active within MNRT. Caustics 
+photon map generation is implemented, but not tested very well. Therefore I 
+currently cannot provide any examples for caustics effects. You might try to 
+load your own models with specular materials, however they have no effect, yet.</p>
+
+<p>The photon map mode can be configured using the appropriate menu entries. There 
+is one mode to visualize the photons stored in the photon maps by small discs. 
+Another mode performs full final gathering to compute the 
+indirect illumination. This takes quite some time, even when the GPU-based ray 
+tracing and photon mapping methods are used. The next section
+describes some ways how final gathering can be accelerated to allow interactive 
+framerates.</p>
+
+
+
+<hr noshade="noshade" size="1" />
+<h2><a name="Accelerated_Final_Gathering"></a>3. Accelerated Final Gathering</h2>
+
+<p>This section describes the two main final gathering acceleration techniques 
+implemented in MNRT. Both were proposed by <a href="#L1">[Wang et al. 2009]</a>, 
+however, variations of these techniques were used before.</p>
+
+<h3>3.1 Adaptive Final Gathering </h3><a name="AdaptiveFG"></a>
+
+<p>Interpolation can be employed to reduce the total number of sample points where 
+we have to execute the final gathering algorithm. The idea to sparsely sample 
+the indirect illumination goes back to <a href="#L4">[Ward et al. 1988]</a>. 
+They observed that indirect illumination in a diffuse environment changes in a 
+smooth way. Consequently, they proposed a caching scheme, the irradiance 
+caching. An iterative caching scheme maps poorly to the GPU architecture as the 
+latter is optimized for parallel execution. Hence MNRT employs a sample 
+selection scheme that chooses all interpolation samples within a single pass. </p>
+
+<p>In the first step of that pass, initial samples are selected using an adaptive 
+approach. A screen space quadtree for the shading points is constructed by 
+classifying all shading points according to the pixel they represent. The 
+quadtree can be constructed level by level in parallel. The construction 
+process is controlled by a metric, the so called <i>geometric variation</i>. It 
+tries to capture illumination changes by considering the geometric properties of 
+the scene. Each quadtree node's geometric variation is defined as the sum of 
+the variations of it's shading points to the node's center. Finally, the initial 
+samples are seeded adaptively according to the geometric variation, starting 
+from the root level down to the leafs of the tree. More samples are assigned to 
+regions of high geometric variation.</p>
+
+<p>To improve the selection of samples, a type of k-means-algorithm is applied 
+iteratively. It uses the geometric variation as metric to generate a clustering 
+of the shading points using the current samples as cluster centers. In the first 
+iteration, the current samples are just the initial samples. They are updated 
+each iteration by using the average position/normal within each cluster as a new 
+current sample. This process is iterated until the process converges or a 
+maximum number of iterations has been reached.</p>
+
+<p>Both steps are implemented within MNRT. The number of initial samples can be 
+selected in a scene specific way as it should be smaller for less complex 
+scenes. A k-means iteration limit can also be specified. The k-means-algorithm 
+is accelerated using the GPU-based kd-tree for shading point to cluster 
+classification.</p>
+
+<p>For each final sample point, final gathering is performed to calculate the 
+incident, caustic-free indirect illumination. <a href="#L1">[Wang et al. 2009]</a> 
+suggested spherical harmonics to store the incident radiance fields. While I 
+also described this in my thesis, the current version of MNRT just records 
+isotropic irradiance information at each sample point. In either case the 
+illumination stored at each sample point is interpolated using sparse data 
+interpolation in a way similar to that of <a href="#L4">[Ward et al. 1988]</a>.</p>
+
+<p>MNRT provides two ways to use the sampled illumination. The first one is no 
+real interpolation. For each shading point it just assigns the irradiance of the 
+closest sample (in terms of geometric variation). It is called best-fit. The 
+second way performs the real interpolation by considering close sample points. A 
+kd-tree of the sample points helps to restrict the search for nearest points.</p>
+
+
+<h3>3.2 Temporal Coherence</h3>
+
+<p>To improve temporal coherence for sequences of generated images, MNRT tries to
+retain sample points from the previous image for generation of the next image.
+It helps improving the performance and avoids possible flickering.
+This is done by classifying the new shading points to the old samples (or
+cluster centers). Shading points that can be classified to old samples (with
+respect to some error bound) do not have to be included in the generation
+of new samples. Only those shading points that have a large error when added
+to an old cluster have to be considered for generating new samples.</p>
+
+<p>So old samples are retained in case there is at least one new shading point
+classified to that sample. For all unclassified shading points, new sample
+points are generated by using the algorithm outlined in the previous section.
+However, the resulting sample count is kept approximately constant.</p>
+
+<p>MNRT's current implementation of this scheme is very simple and makes some
+assumptions to avoid overhead for computing very few new samples or for
+computing new samples for very few shading points.</p>
+
+
+
+<h3>3.3 Illumination Cuts</h3>
+
+<p>Despite the adaptive sampling described in the previous section, final gathering 
+remains too inefficient for interactive applications. Therefore another 
+acceleration technique is employed. It addresses the complexity of density 
+estimation, which has to be performed at gather ray intersections. This process 
+can be quite costly for large photon maps with hundreds of thousands of photons. 
+Therefore <a href="#L1">[Wang et al. 2009]</a> 
+proposed the use of a reduced data set for density estimation, the so called 
+illumination cuts. A cut is a set of nodes so that on each path from a leaf to 
+the root there is exactly one node of the path in the set.</p>
+
+<p>An illumination cut can be constructed during the photon map kd-tree 
+construction. The process is governed by an illumination estimate that evaluates 
+the irradiance at the centers of tree nodes. An initial cut is selected using a 
+heuristic that considers the average of the estimated irradiance at a given tree 
+level. This cut is refined by computing a somewhat exact irradiance value at all 
+current cut nodes. A comparison to the estimated irradiance decides whether the 
+node should be replaced by it's children or not. In the former case, the 
+accuracy of the cut is increased. This process is repeated for some iterations. 
+MNRT provides a way to set the iteration count.</p>
+
+<p>For each final cut node, the exact irradiance value is stored. These values are 
+used for density estimation. Instead of considering all photons in the search 
+range, only the closest cut nodes are considered. A spatial data interpolation 
+is employed to interpolate these irradiance values. Range searching can be 
+performed using the allready constructed photon map kd-tree. Here we just have 
+to traverse until we hit a cut node.</p>
+
+<p>Not all these steps are implemented and tested in a satisfying way, yet. For 
+example, the illumination cut selection is still somewhat experimental. I've not 
+yet found a way to somewhat reliably determine the normal at a given node 
+center. The problem gets worse for nodes in the upper levels of the tree, as the 
+center of such a node often doesn't represent a given surface anymore. Also the 
+criteria for cut selection, e.g. the error allowed between estimated and exact 
+irradiance or the level of the tree where to look for the average irradiance, 
+need improvement. Therefore MNRT provides a way to just use all leaf nodes as 
+cut nodes, which is a somewhat trivial and suboptimal choice. Nevertheless it 
+currently leads to comparable performance and better quality.</p>
+
+<p>The use of illumination cuts is independent of the current photon mapping mode. 
+However, they only affect final gathering density estimations. For visualization 
+of photon maps and for direct density estimation of the caustics photon maps 
+they are not employed.</p>
+
+
+
+
+<hr noshade="noshade" size="1" />
+<h2><a name="MNRT_User_Interface"></a>4. MNRT User Interface</h2>
+
+<p>Due to the experimental nature of MNRT, the actual UI is subject to change. 
+Instead of describing every small menu entry or button, this section 
+focusses on the property dialogs of MNRT. Just some other UI elements are
+explained in the first subsection.</p>
+
+<p>MNRT has two property dialogs. One can be reached over the menu entry
+"Settings -&gt; Properties". It is always accessible, even if no scene was 
+loaded. The other contains scene specific settings that depend on the actual 
+scene loaded. It can be reached over a button at the bottom of the main window. 
+Thus it can only be viewed when a concrete scene was loaded. The next two 
+subsections go into the details.</p>
+    
+<h3>4.1 General Commands</h3>
+
+<p>For simplicity, most UI elements are located in the main menu of the application. There are
+just three buttons at the bottom of the main window: The "Load Example" button allows to load
+an example scene. The "Scene Configuration" button makes the corresponding property dialog 
+visible. It is enabled only if some scene is loaded. The third button controls the render
+mode. It is labeled "Single Frame" and is a toggle button. If selected, just one single
+frame is rendered. Else a never-ending sequence of frames is rendered.</p>
+
+<p>The "File" menu allows to load scenes from file or to show MNRT's statistics window or log
+window. Furthermore there is a list of benchmarks. These can be used to optimize the performance
+of some of MNRT's components. The "Save Image" entry allows to save the rendered image to file. It
+is only available in "Single Frame" mode, where just one image is rendered.
+The "Display Error Image" entry provides an unsophisticated way to generate an error image for
+the current image. First you have to select a reference image file. It should contain some
+image generated with other settings or even another renderer, however with the same image format.
+After that, an error scale value can be specified. It is used to scale the absolute error, that is
+computed for each pixel by comparing current image to reference image.</p>
+
+<p>The "Discrepancy" test (see "File -&gt; Tests") is a very simple visual test I wrote for my
+low discrepancy sequence generation code. It just fills the initial black screen buffer with
+dots. The dots are generated according to the members of a two-dimensional Halton sequence.
+Let (x_n, x_n) be such a member, where x_n and y_n are within [0, 1]. The position of the
+corresponding dot is given by (x_n*screenW, y_n*screenH), where screenW is the screen's width
+and screenH is the screen's height respectively. A single dot will increase the pixel's brightness
+by adding 32 to all color channels. The current test implementation distributes 1M samples, so
+that a reasonably filled image buffer should be the result (we have 512x512 pixels). A uniform
+distribution would mean that a somewhat equal color is reached.</p>
+
+<p>The "Settings -&gt; Dynamic Scene" menu entry allows to simulate the performance of dynmaic 
+scenes (to some extent). Right now, as MNRT does not have an animation system, enabling
+this option just results in rebuilding object kd-tree and photon maps for every frame. Furthermore 
+the "Settings" menu allows to change the camera mode: MNRT supports an orbital camera rotation 
+around the current look-at point and a WASD camera movement known from computer games.</p>
+
+    
+<h3>4.2 General Preferences</h3>
+
+<p>The general preferences dialog contains those settings that are more or less 
+scene independent. It consists of three sections with mainly algorithmic 
+parameters.</p>
+    
+<center><table cellpadding="10" width="90%" border="1">
+    <caption>Ray Tracing</caption>
+    <thead align="left">
+        <tr><th>Option</th><th>Description</th></tr>
+    </thead>
+    <tbody align="left">
+        <tr><td>Direct Lighting</td>
+            <td>Controls whether ray tracing is used to compute direct 
+                lighting or not. If disabled, ray tracing is still employed, but only to 
+                generate the shading points.</td>
+        </tr>
+        <tr><td>Trace Shadow Rays</td>
+            <td>Whether to trace shadow rays for direct light computation. If disabled, the primary
+                light source is assumed to be visible.</td>
+        </tr>
+        <tr><td>Specular Reflection</td>
+            <td>Here you can disable secondary ray generation for 
+                specular reflection in a global way. This setting is somewhat experimental and 
+                not fully supported, yet.</td>
+        </tr>
+        <tr><td>Specular Transmission</td>
+            <td>Same as specular reflection, but for transmission.</td>
+        </tr>
+        <tr><td>Area Light Samples</td>
+            <td>The number of samples to take for area light 
+                handling. Each sample corresponds to a shadow ray that is traced towards a 
+                random point on the area light. The number is composed of an <i>X</i> and <i>Y</i> 
+                value because stratified sampling is applied to reduce the variance of this 
+                operation. Hence <i>X</i> &middot; <i>Y</i> gives the number of shadow rays traced per 
+                shading point.</td>
+        </tr>
+    </tbody>
+</table></center>
+
+<center><table cellpadding="10" width="90%" border="1">
+    <caption>Photon Mapping</caption>
+    <thead align="left">
+        <tr><th>Option</th><th>Description</th></tr>
+    </thead>
+    <tbody align="left">
+        <tr><td>Mode</td>
+            <td>Allows to choose the current photon mapping mode, just as the corresponding
+                main menu entries. Possible modes are:
+                <ul>
+                    <li><i>Disabled</i>: No photon mapping used.</li>
+                    <li><i>Visualize Photons</i>: Visualizes the photons as small discs.</li>
+                    <li><i>Full Final Gathering</i>: Performs full final gathering without
+                        adaptive sample seeding. However, illumination cuts might be used,
+                        depending on the corresponding setting.</li>
+                    <li><i>Adaptive FG + Best Fit</i>: Adaptive final gathering just
+                        as described <a href="#AdaptiveFG">here</a>. No interpolation is
+                        performed. Instead the "best fit" according to the geometric variation
+                        is assigned.</li>
+                    <li><i>Adaptive FG + Interpolation</i>: Just as the previous one, however
+                        in place of best fit assignment, an interpolation is performed.</li>
+                </ul></td>
+        </tr>
+        <tr><td>Max. Photon Bounces</td>
+            <td>Specifies how often a photon can be scattered before it is dismissed. This refers
+                to the proces of photon tracing, which is required for photon map construction.
+                MNRT uses russian roulette to randomly terminate photons after a few bounces, so
+                in most cases, this option just gives an upper limit.</td>
+        </tr>
+        <tr><td>Target Count (Global)</td>
+            <td>The desired number of photons stored in the global photon map. Due to the parallel
+                implementation of photon tracing, the actual number of photons might be a bit greater.</td>
+        </tr>
+        <tr><td>Target Count (Caustics)</td>
+            <td>As before, but for caustics photon map.</td>
+        </tr>
+        <tr><td>k for kNN Search (Global)</td>
+            <td>Count of photons to look for when performing density estimation based on photons
+                in the global photon map. Due to errors resulting from the histogram based query
+                radius refinement, this number is only approximated.</td>
+        </tr>
+        <tr><td>k for kNN Search (Caustics)</td>
+            <td>As before, but for caustics photon map.</td>
+        </tr>
+        <tr><td>kNN Refinement Iterations</td>
+            <td>Number of iterations performed for kNN radius refinement. Within each iteration,
+                the error of the current query radius is reduced by the factor of 32 (as 32
+                histogram bins are used). Two iterations are recommended. Note that
+                for each iteration, a range search has to be performed to fill the histogram.</td>
+        </tr>
+    </tbody>
+</table></center>
+
+<center><table cellpadding="10" width="90%" border="1">
+    <caption>Final Gathering</caption>
+    <thead align="left">
+        <tr><th>Option</th><th>Description</th></tr>
+    </thead>
+    <tbody align="left">
+        <tr><td>Final Gathering Rays</td>
+            <td>How many gather rays to trace for final gathering. The more rays, the better the
+                quality of the result, as variance decreases and noise vanishes. As with area light
+                samples, stratified sampling is applied and requires to split the number of
+                rays into <i>X</i> and <i>Y</i>, where <i>X</i> &middot; <i>Y</i> is the total number
+                of gather rays.</td>
+        </tr>
+        <tr><td>Geometric Variation Alpha</td>
+            <td>During adaptive sample seeding, a metric called geometric variation is used to
+                estimate where it makes most sense to place samples. It is both based on position
+                and normal changes. The geometric variation alpha controls how to weight both
+                changes. A greater alpha leads to more influence for positional changes. A value
+                of zero ignores positonal changes and defines the geometric variation solely
+                using normal changes.</td>
+        </tr>
+        <tr><td>Geometric Variation Propagation</td>
+            <td>This is a factor that controls the propagation of geometric variation from the
+                leafs of the quadtree to the root. I added this to improve the distribution
+                of samples. It is however quite experimental. A value of zero disables this propagation.</td>
+        </tr>
+        <tr><td>k-Means Iterations (Max.)</td>
+            <td>Maximum number of k-means algorithm iterations to perform during final sample
+                generation. A greater number might improve quality of chosen samples.</td>
+        </tr>
+        <tr><td>Illumination Cuts</td>
+            <td>Whether illumination cuts shall be used to accelerate the process of density
+                estimation at intersections of gather rays.</td>
+        </tr>
+        <tr><td>ICut: Use Leafs as Cut Nodes</td>
+            <td>Normally, a cut is computed by estimating irradiance at the centers of
+                kd-tree nodes (photon map nodes). It is improved by replacing nodes
+                whose estimated radiance differs too much from the exact irradiance
+                at the node centers. This process is unfortunately somewhat slow within
+                MNRT. Furthermore the results are not always that good. Therefore this
+                option was added to just use all leafs of the tree as cut nodes. This
+                avoids the slow cut computation and its errors, though at the expense
+                of slower density estimations.</td>
+        </tr>
+        <tr><td>ICut: Node level for E_min</td>
+            <td>The photon map kd-tree node level to use for average irradiance computation
+                to determine E_min. E_min is used to mark initial nodes for a coarse cut
+                through the tree. All nodes with estimated irraidance greater or equal than
+                E_min will be added to that coarse "cut". Here I write "cut" as the resulting
+                node set is not really a cut and has to be processed further to reach a
+                real cut through the tree.</td>
+        </tr>
+        <tr><td>ICut: Refinement iterations</td>
+            <td>When a coarse cut is chosen, it is refined by replacing "bad" nodes with their
+                children. "Bad" nodes are nodes for which the exact irradiance is differing
+                too much from the estimated irradiance. All other nodes, i.e. the "good" nodes,
+                are added to the final cut. The process of replacing "bad" nodes is iterated, so
+                that a maximum number of iterations is required. That's this parameter.</td>
+        </tr>
+        <tr><td>ICut: Required accuracy</td>
+            <td>To identify "bad" nodes that should be replaced by their children, a criterion
+                is required. MNRT compares the estimated node irradiance with the "exact" node
+                irradiance. If the relative error between both is smaller than this parameter,
+                the node is defined to be "good", else "bad".</td>
+        </tr>
+    </tbody>
+</table></center>
+
+
+
+<h3>4.3 Scene Specific Preferences</h3>
+
+<p>Some parameters of the algorithms are more scene specific, e.g. because they depend on the scene
+extent. One might guess that this can be solved by normalizing the scene extent. That's however not
+as easy as some scenes might contain "invisible" geometry. Instead I chose the way to automatically
+estimate them using simple heuristics or specifying them manually. This can be done in the scene
+specific preferences dialog. It also provides ways to adjust camera and light properties. To assist 
+the parameter selection, the dialog gives some scene information, including triangle
+count and axis-aligned bounding box (AABB) information.</p>
+
+<center><table cellpadding="10" width="90%" border="1">
+    <caption>General Parameters</caption>
+    <thead align="left">
+        <tr><th>Option</th><th>Description</th></tr>
+    </thead>
+    <tbody align="left">
+        <tr><td>Construct Caustics Photon Map</td>
+            <td>When enabled, MNRT tries to construct a caustics photon map.
+                This might fail when there are no specular objects. As I haven't
+                finished the corresponding components of MNRT, this setting has no effect.</td>
+        </tr>
+    </tbody>
+</table></center>
+
+<center><table cellpadding="10" width="90%" border="1">
+    <caption>Camera</caption>
+    <thead align="left">
+        <tr><th>Option</th><th>Description</th></tr>
+    </thead>
+    <tbody align="left">
+        <tr><td>Eye Position</td>
+            <td>Position of the observer's eye or just camera position.</td>
+        </tr>
+        <tr><td>Look At Position</td>
+            <td>Where the observer looks at.</td>
+        </tr>
+        <tr><td>Up Vector</td>
+            <td>This vector defines the up-direction of the coordinate system
+                of the camera. It is also used for left/right rotation
+                when rotating the camera. There is no need to provide a normalized
+                vector.</td>
+        </tr>
+    </tbody>
+</table></center>
+
+<p>Currently MNRT supports just one direct light source. Extending this to some constant amount
+of light sources would be no problem. Due to the performance impact of multiple light sources,
+this wasn't examined further.</p>
+
+<center><table cellpadding="10" width="90%" border="1">
+    <caption>Light</caption>
+    <thead align="left">
+        <tr><th>Option</th><th>Description</th></tr>
+    </thead>
+    <tbody align="left">
+        <tr><td>Type</td>
+            <td>The light source type. Possible choices are:
+                <ul>
+                    <li><i>Point</i>: A simple point light that radiates uniformly in all 
+                        directions of the sphere around the light's position.</li>
+                    <li><i>Directional</i>: Directional light source that is placed
+                        infinitely far away from the scene. It emits radiation in
+                        a single direction and is useful to simulate light sources
+                        like the sun. Warning: Implementation not tested for some time.</li>
+                    <li><i>Area (disc)</i>: This describes an area light source using
+                        a disc as area. The area is defined using the light's position,
+                        it's direction and a disc radius.</li>
+                    <li><i>Area (rectangle)</i>: As another type of area light this
+                        one uses a rectangle area. It is defined using the light's
+                        position as the first rectangle vertex. Two vectors
+                        describe the sides of the rectangle. The direction vector
+                        gives the orientation of the light source.</li>
+                </ul>
+            </td>
+        </tr>
+        <tr><td>Position</td>
+            <td>Position of the light source. Concrete meaning varies depending on
+                light type. Unused for directional lights.</td>
+        </tr>
+        <tr><td>Direction</td>
+            <td>Direction of the light source. Used for light orientation and
+                generation of exitant directions for photons. Not used for point
+                lights.</td>
+        </tr>
+        <tr><td>Emitted Radiance</td>
+            <td>The radiance emitted from the light source. One value for each
+                R, G and B channel. For point lights, this is the light's
+                intensity instead of radiance.</td>
+        </tr>
+        <tr><td>Rectangle Vector 1</td>
+            <td>First side vector of the rectangle for rectangle area lights.
+                Should be unnormalized as the length of the vector is used
+                to define the area.</td>
+        </tr>
+        <tr><td>Rectangle Vector 2</td>
+            <td>The second rectangle vector.</td>
+        </tr>
+        <tr><td>Disc Radius</td>
+            <td>For disc area lights this is the radius of the disc.</td>
+        </tr>
+    </tbody>
+</table></center>
+
+
+<center><table cellpadding="10" width="90%" border="1">
+    <caption>Algorithmic Parameters</caption>
+    <thead align="left">
+        <tr><th>Option</th><th>Description</th></tr>
+    </thead>
+    <tbody align="left">
+        <tr><td>Target Count (Global)</td>
+            <td>The desired number of photons stored in the global photon map. Can be used to overwrite
+                global settings. To use the global setting, just assign "-1".</td>
+        </tr>
+        <tr><td>Target Count (Caustics)</td>
+            <td>As before, but for caustics photon map.</td>
+        </tr>
+        <tr><td>Ray Epsilon</td>
+            <td>Small constant that is used to avoid finding an intersection on the same surface
+	    		region the ray origin is located. These intersections have a very small distance from
+	    		the ray origin. This constant describes the minimum distance for an intersection to
+	        	be valid. Choosing it too small might result in invalid intersections.</td>
+        </tr>
+        <tr><td>kNN Search Radius</td>
+            <td>Global maximum for the kNN search radius. MNRT uses a technique 
+                from <a href="#L2">[Zhou et al. 2008]</a> to calculate a new
+                maximum search radius from node radius estimates. This new maximum search radius
+                is at most the global maximum. It is used as a base for 
+                histogram-based radius refinement.</td>
+        </tr>
+        <tr><td>k-Mean-Algorithm Search Radius</td>
+            <td>Global maximum for the search radius used to classify shading
+                points to the cluster centers.</td>
+        </tr>
+        <tr><td>Illumination Sample Search Radius</td>
+            <td>Global maximum for the search radius used to search for nearby
+                illumination samples. This is required for interpolation
+                purposes as indirect illumination was only calculated
+                at adaptively chosen sample points. Picking this too small can
+                create "holes" in the indirect illumination. In this case
+                the system might not be able to find nearby sample points.</td>
+        </tr>
+        <tr><td>Adaptive FG Initial Samples</td>
+            <td>Number of initial samples to seed at the beginning of
+                the sample selection process. Since it can be smaller for less
+                complex scenes, MNRT provides a scene dependent way to choose it. The actual
+                sample number might differ from this parameter as samples can get eliminated
+                during selection process.</td>
+        </tr>
+    </tbody>
+</table></center>
+
+
+<hr noshade="noshade" size="1" />
+<h2><a name="Further_Information"></a>5. Further Information</h2>
+
+The subsequent subsections describe some further details of MNRT, including summaries of unimplemented aspects and
+used third party libraries.
+
+<h3>5.1 Unimplemented Aspects</h3>
+
+<p>As described in previous sections, not all aspects of the system described by <a href="#L1">[Wang et al. 2009]</a> 
+are realized in MNRT. This subsection sums them up, hopefully in a complete way.</p>
+
+<center>
+    <table cellpadding="10" width="60%" border="1">
+        <caption>Unimplemented Aspects</caption>
+        <thead align="left">
+            <tr><th>Aspect</th><th>Status</th></tr>
+        </thead>
+        <tbody align="left">
+            <tr>
+                <td>Caustics</td>
+                <td>Untested, but most components are implemented, e.g. caustics photon map, photon
+                    tracing, BSDF handlers.
+                </td>
+            </tr>
+            <tr>
+                <td>Glossy Materials</td>
+                <td>Missing support for spherical harmonics. Using irradiance values instead of radiance fields.
+                    Furthermore there is no support to read glossy materials from scene descriptions, yet.
+                </td>
+            </tr>
+            <tr>
+                <td>Bump Mapping</td>
+                <td>Implemented in parts, but disabled. Would require ray differentials to accurately
+                    calculate offsets where to fetch the bump map.
+                </td>
+            </tr>
+            <tr>
+                <td>Geometric Primitives</td>
+                <td>Right now, scenes can only consist of triangles.
+                </td>
+            </tr>
+            <tr>
+                <td>Persistent Scene Parameters</td>
+                <td>Currently scene parameters are chosen automatically and can be adjusted manually.
+                    They are, however, lost when closing the application. It did not implement any concepts
+                    that make them persistent.
+                </td>
+            </tr>
+            <tr>
+                <td>Dynamic Scenes</td>
+                <td>Dynamic geometry, lights and materials are not implemented. Camera position however can 
+                    be varied. The former would require an animation system. Due to the fact that MNRT
+                    is not really able to perform at interactive framerates when using final gathering,
+                    this topic wasn't further examined.
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</center>
+
+
+<h3>5.2 Scene Types Support</h3>
+
+<p>My thesis was about global illumination algortihms and their implementation on a 
+GPU. Therefore I wasn't able to spend much time in the creation of a well suited 
+file format for scene files. Additionally, I could not find any open standard scene 
+file formats used for global illumination tasks. Hence I decided to use the 
+library <a href="http://assimp.sourceforge.net/">Open Asset Import Libary (ASSIMP)</a> 
+to import scenes. It might not be the best fit, however it supports basic types 
+like .OBJ or .3DS or .LWO. Since ASSIMP is programmatically hidden behind a facade, 
+MNRT can be easily extended to support further libraries for scene models.</p>
+    
+<p>One big problem in choosing a scene file format were geometric primitives. As I 
+did not want to support other primitives than triangles, I was basically limited 
+to less advanced model descriptions. However ASSIMP has a converter that tries 
+to triangulate loaded models. Another problem were light and camera 
+descriptions. I wasn't able to find an appropriate way to read them out of model 
+files, even if they seemed to be available (e.g. for .3DS). The data ASSIMP 
+delivered wasn't usable. Though this might be a problem of the used models. As a 
+solution I compute camera and light information automatically and provide ways 
+to change these parameters manually.</p>
+
+<p>Material information is limited to that what is delivered by ASSIMP. Currently 
+this is unproblematic as MNRT only supports diffuse environments the 
+corresponding diffuse reflectance coefficients for R, B and G channels can be 
+retrieved using</p>
+
+<ul>
+    <li><code>AI_MATKEY_COLOR_DIFFUSE</code> property of ASSIMP materials or</li>
+    <li><code>aiTextureType_DIFFUSE</code> texture if provided.</li>
+</ul>
+    
+     
+<p>Specular material data is right now recieved from the <code>AI_MATKEY_COLOR_SPECULAR</code> 
+material property only. Specular textures are not supported. The specular exponent for shininess 
+<code>AI_MATKEY_SHININESS</code> is read, but not used. Comparison with .OBJ's <code>Ns</code>
+entry revealed that ASSIMP scales the shininess by a factor of 4. For transparent materials, 
+<code>AI_MATKEY_OPACITY</code> gives the transparency (or opacity) and <code>AI_MATKEY_REFRACTI</code> 
+the index of refraction of the given material. All this information was used for testing purposes,
+is however not yet incorporated into all aspects of MNRT.</p>
+
+
+
+<h3>5.3 Used Third Party Libraries</h3>
+
+<p>This section sums up all third party libraries that were used to develop MNRT. 
+They are all C/C++ open source libraries, and their concrete licenses are given in the 
+subsequent table or in <a href="MNRT License.html">MNRT's license file</a>. The said table also 
+describes why a library was used and where to find more information on that library.</p> 
+
+<center>
+    <table cellpadding="10" width="60%" border="1">
+        <caption>Third Party Libraries</caption>
+        <thead align="left">
+            <tr><th>Library</th><th>License</th><th>Utilization</th></tr>
+        </thead>
+        <tbody align="left">
+            <tr>
+                <td><a href="http://assimp.sourceforge.net/">Open Asset Import Libary</a><br />
+                    (ASSIMP)</td>
+                <td>
+                    <a href="http://assimp.sourceforge.net/main_license.html">BSD license</a>
+                </td>
+                <td>
+                    Scene loading.
+                </td>
+            </tr>
+            <tr>
+                <td><a href="http://code.google.com/p/cudpp/">CUDA Data Parallel Primitives Library</a><br />
+                    (CUDPP)</td>
+                <td>
+                    <a href="http://www.gpgpu.org/static/developer/cudpp/rel/cudpp_1.1/html/license.html">BSD license</a>
+                </td>
+                <td>
+                    GPU-based implementation of parallel primitives Scan, Segmented Scan, Compact and Sort.
+                </td>
+            </tr>
+            <tr>
+                <td><a href="http://openil.sourceforge.net/">Developer's Image Library</a><br />
+                    (DevIL)</td>
+                <td>
+                    <a href="http://openil.sourceforge.net/license.php">LGPL License</a>
+                </td>
+                <td>
+                    Loading of texture images.
+                </td>
+            </tr>
+            <tr>
+                <td><a href="http://www.wxwidgets.org/">wxWidgets</a><br />
+                </td>
+                <td>
+                    <a href="http://www.wxwidgets.org/about/newlicen.htm">wxWindows Licence</a>
+                </td>
+                <td>
+                    Realization of GUI in a platform independent way. Additionally, the
+                    <a href="http://wxpropgrid.sourceforge.net/cgi-bin/index">wxPropertyGrid</a> 
+                    control for wxWidgets was used. It is licensed under the wxWindows License, too.
+                </td>
+            </tr>
+            <tr>
+                <td><a href="http://glew.sourceforge.net/credits.html">OpenGL Extension Wrangler Library</a>
+                </td>
+                <td>
+                    <a href="http://glew.sourceforge.net/glew.txt">BSD license</a>
+                </td>
+                <td>
+                    Display of results.
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</center>
+
+
+   
+
+
+<h3>5.4 Source Code Availability</h3>
+
+<p>Source code of MNRT is available <a href="http://mnrt.codeplex.com/">here</a>. Furthermore 
+<a href="http://www.maneumann.com/MNRT/src/html/">this page</a>
+provides an extensive source code documentation including usage hints.</p>
+
+
+
+<h3>5.5 Optimizing Performance</h3>
+    
+<p>An optimization to improve performance could be the use of multiple CUDA GPUs. Object kd-tree construction,
+photon map building and the actual rendering might be executed in parallel on different GPUs (to some
+extent). Furthermore utilizing the CPU cores in addition to GPU cores should be very useful. For example, in
+an animated scene, the CPU might do the actual transformation of geometry and pass the data to the GPU
+for kd-tree construction. In this case, host to device transfer speed would be critical and might
+drastically reduce performance. As MNRT was developed solely as a GPU-based application, I did not
+investigate possible ways to share workload between GPU and CPU.</p>
+
+<p>Of course, there should be endless ways to improve the performance by code optimization. Several
+parameters are critical for the actual performance. Better automatic selection or similar strategies
+should be very useful. In addition, GPUs are changing steadily. MNRT is not really optimized for
+some specific generation of NVIDIA's GPUs, as I developed it with two different generations (GTS 250, GTX 460).
+I used texture memory in a few places, to get the benefits of the corresponding cache when I had 
+the GTS 250. But as I got the GTX 460, I partly switched back to global memory to benefit from both
+caches, as global memory is cached on Fermi GPUs. This was mainly done for traversal kernels. So
+MNRT is right now neither optimized for Fermi GPUs, nor optimized for older GPUs.</p>
+    
+<hr noshade="noshade" size="1" />
+
+<h2><a name="Literature"></a>Literature</h2>
+
+For further literature, check the bibliography of my thesis.
+
+<ol>
+    <li>
+        <em>Wang, R.; Zhou, K.; Pan, M. &amp; Bao, H.</em><br/>
+        <em>An efficient GPU-based approach for interactive global illumination</em><br/>
+        <em>SIGGRAPH '09: ACM SIGGRAPH 2009 papers, ACM, 2009, 1-8</em>
+    </li>
+    <li><a name="L2"></a>
+        <em>Zhou, K.; Hou, Q.; Wang, R. &amp; Guo, B.</em><br/>
+        <em>Real-time KD-tree construction on graphics hardware</em><br/>
+        <em>SIGGRAPH Asia '08: ACM SIGGRAPH Asia 2008 papers, ACM, 2008, 1-11</em>
+    </li>
+    <li><a name="L3"></a>
+        <em>Jensen, H. W.</em><br/>
+        <em>Realistic Image Synthesis Using Photon Mapping</em><br/>
+        <em>A K Peters, 2001</em>
+    </li>
+    <li><a name="L4"></a>
+        <em>Ward, G. J.; Rubinstein, F. M. &amp; Clear, R. D.</em><br/>
+        <em>A Ray Tracing Solution for Diffuse Interreflection</em><br/>
+        <em>SIGGRAPH '88: Proceedings of the 15th annual conference on Computer graphics and interactive techniques, ACM, 1988, 85-92</em>
+    </li>
+</ol>
+
+<hr noshade="noshade" size="1" style="width: 100%; margin: 2em 0 1em 0;"/>
+
+<table style="width: 100%;">
+    <tr>
+        <td style="text-align: left;">Copyright &copy; Mathias Neumann 2010</td>
+        <td style="text-align: right;"><a href="http://www.maneumann.com">www.maneumann.com</a></td>
+    </tr>
+</table>
+
+
+</body>
+</html>
