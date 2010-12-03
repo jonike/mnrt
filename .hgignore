@@ -1,0 +1,17 @@
+glob:bin/Win32/Release/Test Scenes/
+glob:bin/Win32/Release/Help/
+glob:bin/Win32/Release/Media/
+glob:bin/Win32/Release/MNRT.exe
+glob:bin/Win32/Release/MNRT.log
+glob:bin/Win32/Release/MersenneTwister.dat
+relre:^Release$
+relre:^Debug$
+relre:^MNRT.ncb$
+glob:bin/Win32/Debug/Help/
+glob:bin/Win32/Debug/Media/
+glob:bin/Win32/Debug/Test Scenes/
+glob:bin/Win32/Debug/MersenneTwister.dat
+glob:bin/Win32/Debug/MNRT.pdb
+glob:bin/Win32/Debug/MNRT.log
+glob:bin/Win32/Debug/MNRT.exe
+relre:^vc90.pdb$
